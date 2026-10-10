@@ -2,39 +2,270 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Smells Phishy!</title>
-    <script src="webjars/jquery/3.3.1/jquery.min.js"></script>
-    <script src="webjars/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smells Phishy! — Email Analysis</title>
 
-    <link rel="stylesheet" type="text/css" href="webjars/bootstrap/4.3.1/css/bootstrap.min.css">
-    <link rel="stylesheet" type="text/css" href="css/main.css"/>
-    <link rel="stylesheet" type="text/css" href="css/index.css"/>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-    <link href="https://fonts.googleapis.com/css?family=Amatic+SC:400,700&amp;subset=latin-ext" rel="stylesheet">
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: Arial, sans-serif;
+            color: #17324d;
+            background: linear-gradient(135deg, #edf8ff, #f4f1ff);
+        }
 
-    <script>
-        $(document).ready(function(){
-           $("#upload").change(function(){
-               console.log("Change!");
-               $("#uploadForm").submit();
-           })
-        });
-    </script>
+        .card {
+            width: 100%;
+            max-width: 580px;
+            padding: 40px 32px;
+            text-align: center;
+            background: #fff;
+            border: 1px solid #dde7ef;
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(23, 50, 77, 0.1);
+        }
+
+        .fish {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            object-fit: contain;
+        }
+
+        .brand {
+            margin: 0 0 12px;
+            color: #5260cf;
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            font-size: clamp(28px, 5vw, 38px);
+            line-height: 1.2;
+        }
+
+        .description {
+            margin: 0 0 28px;
+            color: #526579;
+            line-height: 1.6;
+        }
+
+        .upload-area {
+            padding: 24px;
+            background: #f8faff;
+            border: 2px dashed #bcc8e5;
+            border-radius: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 14px;
+            font-weight: bold;
+        }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            font: inherit;
+            color: #526579;
+        }
+
+        input[type="file"]::file-selector-button {
+            margin-right: 12px;
+            padding: 10px 14px;
+            color: #17324d;
+            background: #e7ecff;
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 20px;
+            padding: 14px 20px;
+            font: inherit;
+            font-weight: bold;
+            color: #fff;
+            background: #5260cf;
+            border: 0;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #424fb6;
+        }
+
+        button:disabled {
+            opacity: 0.65;
+            cursor: wait;
+        }
+
+        button:focus-visible,
+        input:focus-visible {
+            outline: 3px solid #17324d;
+            outline-offset: 4px;
+        }
+
+        .status {
+            margin: 16px 0 0;
+            color: #526579;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .note {
+            margin: 24px 0 0;
+            font-size: 13px;
+            color: #526579;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 480px) {
+            .card {
+                padding: 28px 20px;
+            }
+
+            .upload-area {
+                padding: 18px;
+            }
+        }
+    </style>
 </head>
-<body>
-<div class="jumbotron" id="title">
-    <h1>Does this e-mail smell phishy?</h1>
-    Upload it to find out!
-    <br>
 
-    <div class="upload-container">
-        <form action="/analyze" method=POST id="uploadForm" enctype=multipart/form-data>
-            <label class="btn btn-light">
-                Upload & Analyze <input type="file" id="upload" name="file" hidden>
-            </label>
-        </form>
-    </div>
-</div>
-<img class="fish" src="img/fishy.svg" alt="Fish">
+<body>
+<main class="card">
+    <img
+        class="fish"
+        src="/img/fishy.svg"
+        th:src="@{/img/fishy.svg}"
+        alt=""
+        width="100"
+        height="100"
+    >
+
+    <p class="brand">Smells Phishy!</p>
+    <h1>Does this email smell phishy?</h1>
+
+    <p class="description">
+        Upload an email to check for signs of phishing.
+    </p>
+
+    <form
+        id="uploadForm"
+        action="/analyze"
+        th:action="@{/analyze}"
+        method="post"
+        enctype="multipart/form-data"
+    >
+        <!-- Include the CSRF token when Spring Security provides it. -->
+        <th:block th:if="${_csrf != null}">
+            <input
+                type="hidden"
+                th:name="${_csrf.parameterName}"
+                th:value="${_csrf.token}"
+            >
+        </th:block>
+
+        <div class="upload-area">
+            <label for="upload">Choose an email file</label>
+
+            <input
+                type="file"
+                id="upload"
+                name="file"
+                aria-describedby="uploadStatus"
+                required
+            >
+
+            <p
+                id="uploadStatus"
+                class="status"
+                role="status"
+                aria-live="polite"
+            >
+                Your file will upload automatically when selected.
+            </p>
+        </div>
+
+        <button type="submit" id="analyzeButton">
+            Upload &amp; Analyze
+        </button>
+    </form>
+
+    <p class="note">
+        Results can help identify warning signs, but cannot guarantee
+        that an email is safe.
+    </p>
+</main>
+
+<script>
+    (() => {
+        const form = document.getElementById("uploadForm");
+        const upload = document.getElementById("upload");
+        const button = document.getElementById("analyzeButton");
+        const status = document.getElementById("uploadStatus");
+
+        let submitting = false;
+
+        upload.addEventListener("change", () => {
+            if (!upload.files.length || submitting) {
+                return;
+            }
+
+            if (typeof form.requestSubmit === "function") {
+                form.requestSubmit();
+            } else {
+                status.textContent =
+                    "File selected. Click Upload & Analyze to continue.";
+            }
+        });
+
+        form.addEventListener("submit", (event) => {
+            if (submitting) {
+                event.preventDefault();
+                return;
+            }
+
+            if (!upload.files.length) {
+                event.preventDefault();
+                status.textContent = "Please choose an email file.";
+                upload.focus();
+                return;
+            }
+
+            submitting = true;
+            button.disabled = true;
+            button.textContent = "Uploading…";
+            form.setAttribute("aria-busy", "true");
+            status.textContent =
+                `Uploading ${upload.files[0].name}. Please wait.`;
+        });
+
+        // Restore the form if the user returns using the Back button.
+        window.addEventListener("pageshow", () => {
+            submitting = false;
+            button.disabled = false;
+            button.textContent = "Upload & Analyze";
+            form.removeAttribute("aria-busy");
+
+            status.textContent = upload.files.length
+                ? "File selected. Click Upload & Analyze to continue."
+                : "Your file will upload automatically when selected.";
+        });
+    })();
+</script>
 </body>
 </html>
