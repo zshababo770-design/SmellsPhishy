@@ -3,76 +3,91 @@
 <head th:include="header :: header('Smells Phishy - Analysis results', 'css/analysis.css')">
 </head>
 <body style="padding:2%">
-<script>
-    async function getSimoneResultAsync(url) {
+<script th:inline="javascript">
+    "use strict";
 
-        let uri_param = encodeURIComponent(url);
-        let response = await fetch(`http://` + self.location.hostname + `:5000?link=${uri_param}`);
-        if (!response.ok)
-            throw Error(response.statusText);
-        return await response.json();
+    function getSimoneResultAsync(url) {
+        const endpoint = new URL('/simone-analysis', window.location.origin);
+        endpoint.searchParams.set('link', url);
+        return fetch(endpoint.toString(), { credentials: 'same-origin' }).then(response => {
+            if (!response.ok) throw new Error(`Analysis failed (${response.status})`);
+            return response.json();
+        });
     }
 
-    $(document).ready(function () {
+    function safeText(value) {
+        return value === null || value === undefined ? 'Not Available' : String(value);
+    }
 
-        var table = $("#senderchain").DataTable(
-            {
-                "paging": false,
-                "searching": false,
-            }
-        );
+    function format(data, srcIP, location, isp, org, extra) {
+        const container = $('<div>');
+        $('<strong>').text('Additional information:').appendTo(container);
+        const list = $('<ul>').appendTo(container);
+        [['Source IP', srcIP], ['Location', location], ['ISP', isp], ['Organization', org]]
+            .forEach(([label, value]) => $('<li>').text(`${label}: ${safeText(value)}`).appendTo(list));
+        $('<p>').text(safeText(extra)).appendTo(container);
+        $('<strong>').text('Full Entry:').appendTo(container);
+        $('<textarea>', { readonly: true, rows: 2, class: 'form-control' })
+            .css('width', '100%').val(safeText(data)).appendTo(container);
+        return container;
+    }
 
+    $(function () {
+        const table = $('#senderchain').DataTable({ paging: false, searching: false, info: false });
         $('#senderchain').on('click', 'button.showDetails', function () {
-            var tr = $(this).closest('tr');
-            var row = table.row(tr);
-
-
-            var sourceInfoMessage = 'This entry has been automatically determined to be the first public source of this e-mail. ' +
-                'Discrepancies may (or may not) indicate a spoofed header.';
-
+            const button = $(this);
+            const tr = button.closest('tr');
+            const row = table.row(tr);
             if (row.child.isShown()) {
-                // This row is already open - close it
                 row.child.hide();
+                button.text('+').attr('aria-expanded', 'false');
+                return;
+            }
+            const sourceNote = 'This entry has been automatically determined to be the first public source of this e-mail. Discrepancies may (or may not) indicate a spoofed header.';
+            const detail = format(tr.attr('data-full-entry'), tr.attr('data-src-ip'), tr.attr('data-location'),
+                tr.attr('data-isp'), tr.attr('data-org'), tr.hasClass('source') ? sourceNote : tr.attr('data-extra-info'));
+            row.child(detail, tr.hasClass('source') ? 'source' : '').show();
+            button.text('−').attr('aria-expanded', 'true');
+        });
 
-
-                $(this).html('+');
-
-            } else {
-                // Open this row
-
-                if ($(tr).hasClass("source")) {
-
-                    row.child(format(tr.data('full-entry'), tr.data('src-ip'), tr.data('location'), tr.data('isp'), tr.data('org'), sourceInfoMessage), 'source').show();
-
+        $(document).on('click', '.get-link-details', async function () {
+            const button = $(this);
+            const row = button.closest('tr');
+            const url = button.attr('data-link-target');
+            const resultCell = row.find('.simone-result');
+            const vtCell = row.find('.vt-result');
+            button.prop('disabled', true);
+            resultCell.text('Loading...');
+            vtCell.empty();
+            try {
+                const data = await getSimoneResultAsync(url);
+                const classification = safeText(data.classification);
+                resultCell.empty().append($('<span>').addClass(classification === 'Clean' ? 'ok' : 'error').text(classification));
+                const positive = Number(data.vt_positives);
+                const total = Number(data.vt_total);
+                if (data.vt_positives == null || data.vt_total == null || !Number.isFinite(positive) || !Number.isFinite(total)) {
+                    vtCell.text('Unavailable');
                 } else {
-                    row.child(format(tr.data('full-entry'), tr.data('src-ip'), tr.data('location'), tr.data('isp'), tr.data('org'), tr.data('extra-info'))).show();
+                    vtCell.empty().append($('<span>').addClass(positive > 0 ? 'error' : 'ok').text(`${positive}/${total}`));
                 }
-                $(this).html('-');
+                await $.ajax({
+                    url: '/updateLink', method: 'POST', dataType: 'text',
+                    data: { id: button.attr('data-link-index'), permalink: data.vt_link || '',
+                        detections: data.vt_positives, total: data.vt_total }
+                });
+            } catch (error) {
+                console.error('Link analysis failed:', error);
+                if (resultCell.text() === 'Loading...') resultCell.text('Analysis unavailable');
+            } finally {
+                button.prop('disabled', false);
             }
         });
     });
-
-    function format(data, srcIP, location, isp, org, extra) {
-
-        return '<div>' +
-            '<caption>Additional information:</caption>' +
-            '<ul>' +
-            '<li>Source IP: ' + srcIP + ' </li>' +
-            '<li>Location: ' + location + '</li>' +
-            '<li>ISP: ' + isp + '</li>' +
-            '<li>Organization: ' + org + '</li>' +
-            '</ul>' +
-            '<p>' + extra + '</p>' +
-            '<caption>Full Entry:</caption>' +
-            '<textarea readonly rows="2" style="width:100%">' + data + '</textarea>' +
-            '</div>';
-    }
-
 </script>
 
 
 <h1>Analysis results</h1>
-<a href="/"><- Back</a>
+<a href="/">&larr; Back</a>
 <!-- <button class="btn btn-dark" onclick="window.open('/generateTicket', 'width=200, height=100')">Test!</button> -->
 <div class="jumbotron">
     <h2>Details</h2>
@@ -133,7 +148,7 @@
                     <td th:text="${recv.method}"></td>
                     <td th:text="${#dates.format(recv.dateTime, 'dd/MM/yyyy HH:mm:ss z')}"></td>
                     <td>
-                        <button class="btn btn-outline-dark showDetails">+</button>
+                        <button type="button" class="btn btn-outline-dark showDetails" aria-expanded="false" aria-label="Toggle sender details">+</button>
                     </td>
                 </tr>
                 </tbody>
@@ -176,54 +191,11 @@
                     <td style="width: 15%" th:text="${link.getDomain()}"></td>
                     <td style="width: 65%"><input readonly type="text" size="65" class="form-control-plaintext"
                                                   th:value="${link.getTarget()}"></td>
-                    <td style="width: 10%; text-align:center" th:id="${'linkvtinfo' + linkStat.count}">
-
+                    <td style="width: 10%; text-align:center" class="vt-result" aria-live="polite"></td>
+                    <td style="width: 10%; text-align:center" class="simone-result" aria-live="polite">
+                        <button type="button" class="btn btn-outline-dark get-link-details"
+                                th:attr="data-link-target=${link.getTarget()},data-link-index=${linkStat.count}">Get Results</button>
                     </td>
-                    <td style="width: 10%; text-align: center" th:id="${'linksimone' + linkStat.count}">
-                        <button th:id="${'getlinkdetails' + linkStat.count}" class="btn btn-outline-dark">Get Results</button>
-                    </td>
-                    <script>
-                        $("[[${'#getlinkdetails' + linkStat.count}]]").on("click", function () {
-
-                            $("[[${'#linksimone' + linkStat.count }]]").html("Loading...");
-                            getSimoneResultAsync("[[${link.getTarget()}]]")
-                                .then(function (data) {
-                                        if (data.classification != "Clean")
-                                            $("[[${'#linksimone' + linkStat.count }]]").html("<p class='error'>"
-                                                + data.classification + "</p>");
-                                        else
-                                            $("[[${'#linksimone' + linkStat.count }]]").html("<p class='ok'>"
-                                                + data.classification + "</p>");
-
-                                        if (data.vt_positives != 0)
-                                            if(data.vt_positives == undefined)
-                                                $("[[${'#linkvtinfo' + linkStat.count }]]").html("<p class='error'>Unavailable</p>");
-                                            else
-                                                $("[[${'#linkvtinfo' + linkStat.count }]]").html("<p class='error'>"
-                                                + data.vt_positives + "/" + data.vt_total + "</p>");
-                                        else
-                                            $("[[${'#linkvtinfo' + linkStat.count }]]").html("<p class='ok'>"
-                                                + data.vt_positives + "/" + data.vt_total + "</p>");
-
-                                        var ajaxData = {id: [[${linkStat.count}]], permalink: data.vt_link,
-                                            detections: data.vt_positives, total: data.vt_total}
-
-                                        $.ajax({
-                                            url: "/updateLink",
-                                            dataType: 'text',
-                                            type: 'POST',
-                                            data: ajaxData,
-                                        }).fail(function(request, status, error){console.log("Error while updating internal VT data: "
-                                            + request.responseText);});
-
-                                    }
-                                )
-                                .catch(function (error) {
-                                    console.log(error)
-                                    $("[[${'#linksimone' + linkStat.count }]]").html("<p class='error'>Network Error</p>");
-                                });
-                        })
-                    </script>
                 </tr>
                 </tbody>
             </table>
@@ -255,7 +227,7 @@
                     <td th:text="${hashStat.count}"></td>
                     <td th:text="${hash.getFileName()}"></td>
                     <td><textarea readonly rows="1" th:text="${hash.toString()}"></textarea></td>
-                    <td class="results" style="text-align: right;"><a target="_blank"
+                    <td class="results" style="text-align: right;"><a target="_blank" rel="noopener noreferrer"
                                                                       th:href="${'https://www.virustotal.com/#/search/' + hash.toString()}">&#x1f517;</a>
                     </td>
                 </tr>
